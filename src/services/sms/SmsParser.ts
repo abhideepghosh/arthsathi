@@ -39,10 +39,13 @@ const tryPatterns = (
       for (let i = 1; i < match.length; i++) {
         const val = match[i];
         if (!val) continue;
-        if (/^[\d,]+(?:\.\d{1,2})?$/.test(val) && val.length > 1) {
+        if (/^\d{3,4}$/.test(val)) {
+          // Exactly 3-4 digits without comma/decimal → account last digits
+          // (e.g., "3596" from X3596, "126" from XX126)
+          if (!account_last4) account_last4 = val;
+          else amount = extractAmount(val); // both slots look like short numbers; second is amount
+        } else if (/^[\d,]+(?:\.\d{1,2})?$/.test(val) && val.length > 1) {
           amount = extractAmount(val);
-        } else if (/^\d{4}$/.test(val)) {
-          account_last4 = val;
         }
       }
 
