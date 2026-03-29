@@ -22,3 +22,37 @@ allprojects {
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+
+/**
+ * Gradle 9 / AGP 8+ safety net:
+ * Strips the legacy `package` attribute from library AndroidManifest.xml files
+ * and sets `namespace` in build.gradle if the library forgot to migrate.
+ * Uses pluginManager.withPlugin + state check for Gradle 9 compatibility
+ * (afterEvaluate alone fails when a project is already evaluated).
+ */
+subprojects { subproject ->
+    subproject.pluginManager.withPlugin('com.android.library') {
+        def fixNamespace = {
+            if (subproject.plugins.hasPlugin('com.android.library')) {
+                def manifestFile = file("${subproject.projectDir}/src/main/AndroidManifest.xml")
+                if (manifestFile.exists()) {
+                    def manifest = manifestFile.text
+                    def packageMatch = (manifest =~ /package="([^"]+)"/)
+                    if (packageMatch.find()) {
+                        def pkg = packageMatch.group(1)
+                        if (!subproject.android.namespace) {
+                            subproject.android.namespace = pkg
+                        }
+                        manifestFile.text = manifest.replaceAll(/\s*package="[^"]+"/, '')
+                    }
+                }
+            }
+        }
+
+        if (subproject.state.executed) {
+            fixNamespace()
+        } else {
+            subproject.afterEvaluate { fixNamespace() }
+        }
+    }
+}

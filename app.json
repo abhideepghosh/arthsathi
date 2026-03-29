@@ -1,7 +1,42 @@
 {
   "expo": {
     "name": "ArthSaathi",
-    "slug": "ArthSaathi",
-    "version": "1.0.0"
+    "slug": "arthsaathi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F0F0F"
+    },
+    "android": {
+      "package": "com.arthsaathi",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F0F0F"
+      },
+      "permissions": [
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-font",
+      "expo-sqlite",
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0F0F0F",
+          "image": "./assets/splash.png"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4ef43044-60bf-4541-9aea-f739a091cb7d"
+      }
+    }
   }
 }
