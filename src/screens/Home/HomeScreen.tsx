@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import { GearSix, Plus, CaretLeft, CaretRight } from 'phosphor-react-native';
+import { GearSix, Plus, CaretLeft, CaretRight, ArrowCounterClockwise } from 'phosphor-react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -19,7 +19,7 @@ import { typography, spacing, borderRadius } from '../../constants/typography';
 import { formatINR, formatINRShort } from '../../utils/formatCurrency';
 import { getCurrentMonth, getPeriodRange } from '../../utils/dateHelpers';
 import { format, subMonths, addMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { getMonthlySpending, getMonthlyIncome, getRecentTransactions, getTransactionsByPeriod, updateTransactionCategory } from '../../services/db/transactionQueries';
+import { getMonthlySpending, getMonthlyIncome, getRecentTransactions, getTransactionsByPeriod, updateTransactionCategory, getCategorySpending } from '../../services/db/transactionQueries';
 import { getBudget } from '../../services/db/budgetQueries';
 import { getAllCategories } from '../../services/db/categoryQueries';
 import { Transaction } from '../../types/transaction';
@@ -43,6 +43,8 @@ const HomeScreen: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryPickerTxId, setCategoryPickerTxId] = useState<string | null>(null);
+  const [categorySpending, setCategorySpending] = useState<{ category_id: string; total: number; name: string; color: string; icon: string }[]>([]);
+  const [totalTxCount, setTotalTxCount] = useState(0);
 
   const selectedMonth = format(selectedDate, 'yyyy-MM');
   const isCurrentMonth = selectedMonth === getCurrentMonth();
@@ -59,7 +61,7 @@ const HomeScreen: React.FC = () => {
       const monthStart = startOfMonth(selectedDate).getTime();
       const monthEnd = endOfMonth(selectedDate).getTime();
       const weekRange = getPeriodRange('week');
-      const [sp, inc, bud, txns, cats, weekTxns] = await Promise.all([
+      const [sp, inc, bud, txns, cats, weekTxns, catSpending] = await Promise.all([
         getMonthlySpending(db, month),
         getMonthlyIncome(db, month),
         getBudget(db, month),
@@ -68,13 +70,18 @@ const HomeScreen: React.FC = () => {
         isCurrentMonth
           ? getTransactionsByPeriod(db, weekRange.from.getTime(), weekRange.to.getTime())
           : Promise.resolve([]),
+        !isCurrentMonth
+          ? getCategorySpending(db, monthStart, monthEnd)
+          : Promise.resolve([]),
       ]);
       setSpending(sp);
       setIncome(inc);
       setBudget(bud);
+      setTotalTxCount(txns.length);
       // Show latest 5 transactions for the selected month
       setTransactions(txns.slice(0, 5));
       setCategories(cats);
+      setCategorySpending(catSpending);
       const weekSpent = weekTxns
         .filter((t: Transaction) => t.type === 'debit')
         .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
@@ -189,84 +196,180 @@ const HomeScreen: React.FC = () => {
           </Card>
         </Animated.View>
 
-        {/* Quick Stats */}
-        <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.statsRow}>
-          <Card style={styles.statCard}>
-            <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
-              Weekly Spend
-            </Text>
-            <Text style={[typography.monoAmount, { color: colors.danger, marginTop: spacing.xs }]}>
-              {formatINRShort(weeklySpending)}
-            </Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
-              Income
-            </Text>
-            <Text style={[typography.monoAmount, { color: colors.accent, marginTop: spacing.xs }]}>
-              {formatINRShort(income)}
-            </Text>
-          </Card>
-        </Animated.View>
-
-        {/* Recent Transactions */}
-        <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-          <View style={styles.sectionHeader}>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>
-              Recent Transactions
-            </Text>
-            <Pressable onPress={() => navigation.navigate('MainTabs', { screen: 'Transactions' })}>
-              <Text style={[typography.labelLarge, { color: colors.accent }]}>
-                View all &rarr;
+        {/* Quick Stats — show weekly spend only for current month */}
+        {isCurrentMonth && (
+          <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.statsRow}>
+            <Card style={styles.statCard}>
+              <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
+                Weekly Spend
               </Text>
-            </Pressable>
-          </View>
-
-          {transactions.length === 0 ? (
-            <Card>
-              <Text style={[typography.bodyMedium, { color: colors.textTertiary, textAlign: 'center' }]}>
-                No transactions yet. Tap + to add one.
+              <Text style={[typography.monoAmount, { color: colors.danger, marginTop: spacing.xs }]}>
+                {formatINRShort(weeklySpending)}
               </Text>
             </Card>
-          ) : (
-            transactions.map((tx, index) => {
-              const cat = getCategoryForTx(tx.category_id);
-              return (
-                <Animated.View
-                  key={tx.id}
-                  entering={FadeInDown.delay(350 + index * 60).duration(400)}
-                >
-                  <Card style={styles.txCard} onPress={() => setCategoryPickerTxId(tx.id)}>
-                    <View style={styles.txRow}>
-                      <View style={styles.txInfo}>
+            <Card style={styles.statCard}>
+              <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
+                Income
+              </Text>
+              <Text style={[typography.monoAmount, { color: colors.accent, marginTop: spacing.xs }]}>
+                {formatINRShort(income)}
+              </Text>
+            </Card>
+          </Animated.View>
+        )}
+
+        {/* Recent Transactions (current month) or Month Summary (past months) */}
+        {isCurrentMonth ? (
+          <Animated.View entering={FadeInDown.delay(300).duration(500)}>
+            <View style={styles.sectionHeader}>
+              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>
+                Recent Transactions
+              </Text>
+              <Pressable onPress={() => navigation.navigate('MainTabs', { screen: 'Transactions' })}>
+                <Text style={[typography.labelLarge, { color: colors.accent }]}>
+                  View all &rarr;
+                </Text>
+              </Pressable>
+            </View>
+
+            {transactions.length === 0 ? (
+              <Card>
+                <Text style={[typography.bodyMedium, { color: colors.textTertiary, textAlign: 'center' }]}>
+                  No transactions yet. Tap + to add one.
+                </Text>
+              </Card>
+            ) : (
+              transactions.map((tx, index) => {
+                const cat = getCategoryForTx(tx.category_id);
+                return (
+                  <Animated.View
+                    key={tx.id}
+                    entering={FadeInDown.delay(350 + index * 60).duration(400)}
+                  >
+                    <Card style={styles.txCard} onPress={() => setCategoryPickerTxId(tx.id)}>
+                      <View style={styles.txRow}>
+                        <View style={styles.txInfo}>
+                          <Text
+                            style={[typography.bodyLarge, { color: colors.textPrimary }]}
+                            numberOfLines={1}
+                          >
+                            {tx.merchant ?? tx.note ?? 'Transaction'}
+                          </Text>
+                          <Text style={[typography.bodyMedium, { color: colors.textTertiary }]}>
+                            {cat?.name ?? 'Uncategorized'} &middot; {tx.source}
+                          </Text>
+                        </View>
                         <Text
-                          style={[typography.bodyLarge, { color: colors.textPrimary }]}
-                          numberOfLines={1}
+                          style={[
+                            typography.monoAmount,
+                            {
+                              color: tx.type === 'debit' ? colors.danger : colors.accent,
+                            },
+                          ]}
                         >
-                          {tx.merchant ?? tx.note ?? 'Transaction'}
-                        </Text>
-                        <Text style={[typography.bodyMedium, { color: colors.textTertiary }]}>
-                          {cat?.name ?? 'Uncategorized'} &middot; {tx.source}
+                          {tx.type === 'debit' ? '-' : '+'}
+                          {formatINR(tx.amount)}
                         </Text>
                       </View>
-                      <Text
-                        style={[
-                          typography.monoAmount,
-                          {
-                            color: tx.type === 'debit' ? colors.danger : colors.accent,
-                          },
-                        ]}
-                      >
-                        {tx.type === 'debit' ? '-' : '+'}
-                        {formatINR(tx.amount)}
-                      </Text>
+                    </Card>
+                  </Animated.View>
+                );
+              })
+            )}
+          </Animated.View>
+        ) : (
+          <Animated.View entering={FadeInDown.delay(300).duration(500)}>
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginBottom: spacing.md }]}>
+              {format(selectedDate, 'MMMM')} Summary
+            </Text>
+
+            {/* Spent / Received / Net */}
+            <Card style={styles.monthSummaryCard}>
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryItem}>
+                  <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>Spent</Text>
+                  <Text style={[typography.monoAmount, { color: colors.danger }]}>
+                    {formatINRShort(spending)}
+                  </Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>Received</Text>
+                  <Text style={[typography.monoAmount, { color: colors.accent }]}>
+                    {formatINRShort(income)}
+                  </Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>Net</Text>
+                  <Text
+                    style={[
+                      typography.monoAmount,
+                      { color: income - spending >= 0 ? colors.accent : colors.danger },
+                    ]}
+                  >
+                    {income - spending >= 0 ? '+' : '-'}
+                    {formatINRShort(Math.abs(income - spending))}
+                  </Text>
+                </View>
+              </View>
+            </Card>
+
+            {/* Top Categories */}
+            {categorySpending.length > 0 && (
+              <Card style={styles.monthSummaryCard}>
+                <Text style={[typography.labelLarge, { color: colors.textPrimary, marginBottom: spacing.sm }]}>
+                  Top Categories
+                </Text>
+                {categorySpending.slice(0, 5).map((cat, index) => {
+                  const pct = spending > 0 ? (cat.total / spending) * 100 : 0;
+                  return (
+                    <View key={cat.category_id ?? `cat-${index}`} style={styles.catBreakdownItem}>
+                      <View style={styles.catBreakdownLabel}>
+                        <View style={[styles.catColorDot, { backgroundColor: cat.color ?? '#A0A0A0' }]} />
+                        <Text style={[typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
+                          {cat.name ?? 'Uncategorized'}
+                        </Text>
+                        <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
+                          {formatINRShort(cat.total)}
+                        </Text>
+                      </View>
+                      <View style={[styles.catBar, { backgroundColor: colors.bgTertiary }]}>
+                        <View
+                          style={[
+                            styles.catBarFill,
+                            { backgroundColor: cat.color ?? '#A0A0A0', width: `${Math.min(pct, 100)}%` },
+                          ]}
+                        />
+                      </View>
                     </View>
-                  </Card>
-                </Animated.View>
-              );
-            })
-          )}
-        </Animated.View>
+                  );
+                })}
+              </Card>
+            )}
+
+            {/* Transactions count */}
+            <Card style={styles.monthSummaryCard}>
+              <Text style={[typography.bodyMedium, { color: colors.textSecondary, textAlign: 'center' }]}>
+                {totalTxCount > 0
+                  ? `${totalTxCount} transaction${totalTxCount !== 1 ? 's' : ''} in ${format(selectedDate, 'MMMM')}`
+                  : `No transactions in ${format(selectedDate, 'MMMM')}`}
+              </Text>
+            </Card>
+
+            {/* Back to Current Month */}
+            <Pressable
+              onPress={() => setSelectedDate(new Date())}
+              style={({ pressed }) => [
+                styles.backToCurrentBtn,
+                { backgroundColor: colors.accent, opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <ArrowCounterClockwise size={18} color={colors.white} weight="bold" />
+              <Text style={[typography.labelLarge, { color: colors.white }]}>
+                Back to Current Month
+              </Text>
+            </Pressable>
+          </Animated.View>
+        )}
       </ScrollView>
 
       {/* Category Picker Modal */}
@@ -411,6 +514,44 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
+  },
+  monthSummaryCard: {
+    marginBottom: spacing.sm,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryItem: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  catBreakdownItem: {
+    marginBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  catBreakdownLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  catBar: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  catBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  backToCurrentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.sm,
   },
   fab: {
     position: 'absolute',
