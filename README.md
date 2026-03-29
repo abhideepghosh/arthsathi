@@ -121,7 +121,7 @@ The notification listener runs as a **system-level service** — it works even w
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/arthsaathi.git
+git clone https://github.com/abhideepghosh/arthsathi.git
 cd arthsaathi
 
 # Install dependencies
